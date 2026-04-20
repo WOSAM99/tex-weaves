@@ -24,7 +24,6 @@ interface Beam {
 
 interface Quality { id: number; name: string; }
 interface Machine { machine_no: number; }
-interface MachineProd { machine_no: number; avg_prod: number; }
 
 const TABS = ["IN_STOCK", "ACTIVE", "COMPLETED", "JOBWORK"] as const;
 
@@ -42,13 +41,11 @@ export default function BeamPage() {
   const [avgProd, setAvgProd] = useState<Record<number, number>>({});
   const [loading, setLoading] = useState(true);
 
-  // Modal state
   const [showCreate, setShowCreate] = useState(false);
   const [showLoad, setShowLoad] = useState(false);
   const [showBhidan, setShowBhidan] = useState(false);
   const [selectedBeam, setSelectedBeam] = useState<Beam | null>(null);
 
-  // Forms
   const [form, setForm] = useState({ beam_no: "", quality_id: "", warp_meter: "", date_created: "" });
   const [loadForm, setLoadForm] = useState({ machine_no: "", loading_date: "", loading_shift: "DAY" });
   const [bhidanForm, setBhidanForm] = useState({ bhidan_date: "", bhidan_shift: "DAY" });
@@ -76,19 +73,20 @@ export default function BeamPage() {
   async function loadBeams() {
     setLoading(true);
 
+    const targetStatus = tab === "JOBWORK" ? "JOBWORK_SENT" : tab;
+
     const { data: rawBeams } = await supabase
       .from("beam")
       .select("*, quality:quality_id(name)")
-      .eq("status", tab === "JOBWORK" ? "JOBWORK_SENT" : tab)
+      .eq("status", targetStatus)
       .order("date_created", { ascending: false });
 
-    // For active beams, load avg production for days-to-bhidan
-    if (tab === "ACTIVE") {
+    if (tab === "ACTIVE" && rawBeams && rawBeams.length > 0) {
       const { data: prodRows } = await supabase
         .from("shift_log")
-        .select("machine_no, production_meters, date")
+        .select("machine_no, production_meters")
         .order("date", { ascending: false })
-        .limit;
+        .limit(100);
 
       const prodByMc: Record<number, number[]> = {};
       (prodRows || []).forEach((r: any) => {
@@ -105,20 +103,6 @@ export default function BeamPage() {
 
     setBeams(rawBeams || []);
     setLoading(false);
-  }
-
-  // Calculate pending meters for active beams
-  async function getPendingMeter(beam: Beam): Promise<{ pending: number; produced: number }> {
-    if (!beam.loading_date) return { pending: beam.warp_meter, produced: 0 };
-
-    const { data: logs } = await supabase
-      .from("shift_log")
-      .select("production_meters, date, shift")
-      .eq("machine_no", beam.machine_no)
-      .gte("date", beam.loading_date);
-
-    const produced = (logs || []).reduce((s: number, l: any) => s + (l.production_meters || 0), 0);
-    return { pending: Math.max(0, beam.warp_meter - produced), produced };
   }
 
   async function handleCreate(e: React.FormEvent) {
@@ -168,17 +152,28 @@ export default function BeamPage() {
     loadBeams();
   }
 
-  const activeBeamsWithPending = beams.map((b) => {
-    const avg = avgProd[b.machine_no || 0] || 0;
-    // Approximate: use production_meters from latest data
-    return b;
-  });
+  function tabLabel(t: typeof TABS[number]) {
+    if (t === "IN_STOCK") return "In Stock";
+    if (t === "ACTIVE") return "Active";
+    if (t === "COMPLETED") return "Completed";
+    return "Jobwork";
+  }
+
+  function tabIcon(t: typeof TABS[number]) {
+    if (t === "IN_STOCK") return "📦";
+    if (t === "ACTIVE") return "⚙️";
+    if (t === "COMPLETED") return "✅";
+    return "🏭";
+  }
 
   return (
     <div className="p-6">
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-slate-800">🧶 Beam Management</h1>
-        <button onClick={() => setShowCreate(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition">
+        <h1 className="text-2xl font-bold text-slate-800">Beam Management</h1>
+        <button
+          onClick={() => setShowCreate(true)}
+          className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition text-sm font-medium"
+        >
           + New Beam
         </button>
       </div>
@@ -189,11 +184,13 @@ export default function BeamPage() {
           <button
             key={t}
             onClick={() => setTab(t)}
-            className={`px-4 py-2 rounded-lg font-medium transition ${
-              tab === t ? "bg-blue-600 text-white" : "bg-white text-slate-600 border border-slate-300 hover:bg-slate-50"
-            }`}
+            className={
+              tab === t
+                ? "bg-blue-600 text-white px-4 py-2 rounded-lg font-medium text-sm"
+                : "bg-white text-slate-600 border border-slate-300 px-4 py-2 rounded-lg font-medium text-sm hover:bg-slate-50"
+            }
           >
-            {t === "IN_STOCK" ? "📦 In Stock" : t === "ACTIVE" ? "⚙️ Active" : t === "COMPLETED" ? "✅ Completed" : "🏭 Jobwork"}
+            {tabIcon(t)} {tabLabel(t)}
           </button>
         ))}
       </div>
@@ -203,34 +200,46 @@ export default function BeamPage() {
         <p className="text-slate-500">Loading...</p>
       ) : beams.length === 0 ? (
         <div className="bg-white rounded-xl shadow p-12 text-center text-slate-400">
-          No beams in "{tab}" status
+          No beams in &ldquo;{tabLabel(tab)}&rdquo; status
         </div>
       ) : (
         <div className="bg-white rounded-xl shadow overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-slate-100 text-xs">
               <tr>
-                {tab === "ACTIVE" && <th className="text-left px-4 py-3 font-semibold text-slate-600">Machine</th>}
-                <th className="text-left px-4 py-3 font-semibold text-slate-600">Beam No</th>}
-                <th className="text-left px-4 py-3 font-semibold text-slate-600">Quality</th>}
-                <th className="text-right px-4 py-3 font-semibold text-slate-600">Warp (m)</th>}
-                {tab === "ACTIVE" && <th className="text-right px-4 py-3 font-semibold text-slate-600">Pending (m)</th>}
-                {tab === "ACTIVE" && <th className="text-center px-4 py-3 font-semibold text-slate-600">Days to Bhidan</th>}
-                <th className="text-left px-4 py-3 font-semibold text-slate-600">Loaded Date</th>}
-                {tab === "COMPLETED" && <th className="text-left px-4 py-3 font-semibold text-slate-600">Bhidan Date</th>}
+                {tab === "ACTIVE" && (
+                  <th className="text-left px-4 py-3 font-semibold text-slate-600">Machine</th>
+                )}
+                <th className="text-left px-4 py-3 font-semibold text-slate-600">Beam No</th>
+                <th className="text-left px-4 py-3 font-semibold text-slate-600">Quality</th>
+                <th className="text-right px-4 py-3 font-semibold text-slate-600">Warp (m)</th>
+                {tab === "ACTIVE" && (
+                  <th className="text-right px-4 py-3 font-semibold text-slate-600">Pending (m)</th>
+                )}
+                {tab === "ACTIVE" && (
+                  <th className="text-center px-4 py-3 font-semibold text-slate-600">Days to Bhidan</th>
+                )}
+                <th className="text-left px-4 py-3 font-semibold text-slate-600">Loaded Date</th>
+                {tab === "COMPLETED" && (
+                  <th className="text-left px-4 py-3 font-semibold text-slate-600">Bhidan Date</th>
+                )}
                 <th className="px-4 py-3"></th>
               </tr>
             </thead>
             <tbody>
               {beams.map((b) => {
-                const days = avgProd[b.machine_no || 0]
-                  ? Math.round(Math.max(0, (b.warp_meter) / avgProd[b.machine_no || 0]))
+                const avg = avgProd[b.machine_no || 0] || 0;
+                const days = avg > 0
+                  ? Math.round(Math.max(0, b.warp_meter / avg))
                   : null;
+
                 return (
                   <tr key={b.id} className="border-t hover:bg-slate-50">
                     {tab === "ACTIVE" && (
                       <td className="px-4 py-3 font-medium">
-                        {b.machine_no ? `Machine ${b.machine_no}` : <span className="text-slate-400">—</span>}
+                        {b.machine_no ? "Machine " + b.machine_no : (
+                          <span className="text-slate-400">—</span>
+                        )}
                       </td>
                     )}
                     <td className="px-4 py-3 font-medium text-slate-800">{b.beam_no}</td>
@@ -238,21 +247,24 @@ export default function BeamPage() {
                     <td className="px-4 py-3 text-right">{b.warp_meter.toLocaleString()}</td>
                     {tab === "ACTIVE" && (
                       <td className="px-4 py-3 text-right font-medium">
-                        {/* Approximate — pending shown after loading */}
-                        {(b.loading_date ? b.warp_meter : "—")}
+                        {b.loading_date ? b.warp_meter.toLocaleString() : "—"}
                       </td>
                     )}
                     {tab === "ACTIVE" && (
                       <td className="px-4 py-3 text-center">
                         {days !== null ? (
-                          <span className={`px-2 py-1 rounded-full text-xs font-bold ${daysColor(days)}`}>
+                          <span className={"px-2 py-1 rounded-full text-xs font-bold " + daysColor(days)}>
                             ~{days}d
                           </span>
-                        ) : <span className="text-slate-300">—</span>}
+                        ) : (
+                          <span className="text-slate-300">—</span>
+                        )}
                       </td>
                     )}
                     <td className="px-4 py-3 text-slate-500 text-xs">
-                      {b.loading_date ? `${b.loading_date} ${b.loading_shift || ""}` : "—"}
+                      {b.loading_date
+                        ? b.loading_date + (b.loading_shift ? " " + b.loading_shift : "")
+                        : "—"}
                     </td>
                     {tab === "COMPLETED" && (
                       <td className="px-4 py-3 text-slate-500 text-xs">{b.bhidan_date || "—"}</td>
@@ -260,7 +272,11 @@ export default function BeamPage() {
                     <td className="px-4 py-3 text-right">
                       {tab === "IN_STOCK" && (
                         <button
-                          onClick={() => { setSelectedBeam(b); setShowLoad(true); setLoadForm({ machine_no: String(b.machine_no || ""), loading_date: today(), loading_shift: "DAY" }); }}
+                          onClick={() => {
+                            setSelectedBeam(b);
+                            setShowLoad(true);
+                            setLoadForm({ machine_no: String(b.machine_no || ""), loading_date: today(), loading_shift: "DAY" });
+                          }}
                           className="text-blue-600 hover:underline text-xs"
                         >
                           Load on Machine
@@ -268,7 +284,11 @@ export default function BeamPage() {
                       )}
                       {tab === "ACTIVE" && (
                         <button
-                          onClick={() => { setSelectedBeam(b); setShowBhidan(true); setBhidanForm({ bhidan_date: today(), bhidan_shift: "DAY" }); }}
+                          onClick={() => {
+                            setSelectedBeam(b);
+                            setShowBhidan(true);
+                            setBhidanForm({ bhidan_date: today(), bhidan_shift: "DAY" });
+                          }}
                           className="text-orange-600 hover:underline text-xs"
                         >
                           Mark Bhidan
@@ -287,30 +307,68 @@ export default function BeamPage() {
       {showCreate && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md">
-            <h2 className="text-lg font-bold text-slate-800 mb-4">🧶 Create New Beam</h2>
+            <h2 className="text-lg font-bold text-slate-800 mb-4">Create New Beam</h2>
             <form onSubmit={handleCreate} className="space-y-4">
               <div>
                 <label className="label">Beam No</label>
-                <input type="text" value={form.beam_no} onChange={(e) => setForm((f) => ({ ...f, beam_no: e.target.value }))} className="input" required placeholder="e.g. NB5338" />
+                <input
+                  type="text"
+                  value={form.beam_no}
+                  onChange={(e) => setForm((f) => ({ ...f, beam_no: e.target.value }))}
+                  className="input"
+                  required
+                  placeholder="e.g. NB5338"
+                />
               </div>
               <div>
                 <label className="label">Quality</label>
-                <select value={form.quality_id} onChange={(e) => setForm((f) => ({ ...f, quality_id: e.target.value }))} className="input" required>
+                <select
+                  value={form.quality_id}
+                  onChange={(e) => setForm((f) => ({ ...f, quality_id: e.target.value }))}
+                  className="input"
+                  required
+                >
                   <option value="">Select quality</option>
-                  {qualities.map((q) => <option key={q.id} value={q.id}>{q.name}</option>)}
+                  {qualities.map((q) => (
+                    <option key={q.id} value={q.id}>{q.name}</option>
+                  ))}
                 </select>
               </div>
               <div>
                 <label className="label">Warp Meter</label>
-                <input type="number" value={form.warp_meter} onChange={(e) => setForm((f) => ({ ...f, warp_meter: e.target.value }))} className="input" required placeholder="e.g. 3755" />
+                <input
+                  type="number"
+                  value={form.warp_meter}
+                  onChange={(e) => setForm((f) => ({ ...f, warp_meter: e.target.value }))}
+                  className="input"
+                  required
+                  placeholder="e.g. 3755"
+                />
               </div>
               <div>
                 <label className="label">Date Created</label>
-                <input type="date" value={form.date_created} onChange={(e) => setForm((f) => ({ ...f, date_created: e.target.value }))} className="input" />
+                <input
+                  type="date"
+                  value={form.date_created}
+                  onChange={(e) => setForm((f) => ({ ...f, date_created: e.target.value }))}
+                  className="input"
+                />
               </div>
               <div className="flex gap-3 pt-2">
-                <button type="submit" disabled={saving} className="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50">{saving ? "Saving..." : "Create Beam"}</button>
-                <button type="button" onClick={() => setShowCreate(false)} className="flex-1 bg-slate-200 text-slate-800 py-2 rounded-lg hover:bg-slate-300">Cancel</button>
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium"
+                >
+                  {saving ? "Saving..." : "Create Beam"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowCreate(false)}
+                  className="flex-1 bg-slate-200 text-slate-800 py-2 rounded-lg hover:bg-slate-300 text-sm"
+                >
+                  Cancel
+                </button>
               </div>
             </form>
           </div>
@@ -321,30 +379,67 @@ export default function BeamPage() {
       {showLoad && selectedBeam && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md">
-            <h2 className="text-lg font-bold text-slate-800 mb-4">⚙️ Load Beam {selectedBeam.beam_no}</h2>
+            <h2 className="text-lg font-bold text-slate-800 mb-4">
+              Load Beam {selectedBeam.beam_no}
+            </h2>
             <form onSubmit={handleLoad} className="space-y-4">
               <div>
                 <label className="label">Machine No</label>
-                <select value={loadForm.machine_no} onChange={(e) => setLoadForm((f) => ({ ...f, machine_no: e.target.value }))} className="input" required>
+                <select
+                  value={loadForm.machine_no}
+                  onChange={(e) => setLoadForm((f) => ({ ...f, machine_no: e.target.value }))}
+                  className="input"
+                  required
+                >
                   <option value="">Select machine</option>
-                  {machines.map((m) => <option key={m.machine_no} value={m.machine_no}>Machine {m.machine_no}</option>)}
+                  {machines.map((m) => (
+                    <option key={m.machine_no} value={m.machine_no}>Machine {m.machine_no}</option>
+                  ))}
                 </select>
               </div>
               <div>
                 <label className="label">Loading Date</label>
-                <input type="date" value={loadForm.loading_date} onChange={(e) => setLoadForm((f) => ({ ...f, loading_date: e.target.value }))} className="input" required />
+                <input
+                  type="date"
+                  value={loadForm.loading_date}
+                  onChange={(e) => setLoadForm((f) => ({ ...f, loading_date: e.target.value }))}
+                  className="input"
+                  required
+                />
               </div>
               <div>
                 <label className="label">Shift</label>
                 <div className="flex gap-2">
                   {(["DAY", "NIGHT"] as const).map((s) => (
-                    <button key={s} type="button" onClick={() => setLoadForm((f) => ({ ...f, loading_shift: s }))} className={`flex-1 py-2 rounded-lg font-medium ${loadForm.loading_shift === s ? "bg-blue-600 text-white" : "bg-slate-100"}`}>{s}</button>
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => setLoadForm((f) => ({ ...f, loading_shift: s }))}
+                      className={
+                        "flex-1 py-2 rounded-lg font-medium text-sm " +
+                        (loadForm.loading_shift === s ? "bg-blue-600 text-white" : "bg-slate-100")
+                      }
+                    >
+                      {s}
+                    </button>
                   ))}
                 </div>
               </div>
               <div className="flex gap-3 pt-2">
-                <button type="submit" disabled={saving} className="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50">{saving ? "Saving..." : "Load Beam"}</button>
-                <button type="button" onClick={() => setShowLoad(false)} className="flex-1 bg-slate-200 text-slate-800 py-2 rounded-lg hover:bg-slate-300">Cancel</button>
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium"
+                >
+                  {saving ? "Saving..." : "Load Beam"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowLoad(false)}
+                  className="flex-1 bg-slate-200 text-slate-800 py-2 rounded-lg hover:bg-slate-300 text-sm"
+                >
+                  Cancel
+                </button>
               </div>
             </form>
           </div>
@@ -355,17 +450,35 @@ export default function BeamPage() {
       {showBhidan && selectedBeam && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md">
-            <h2 className="text-lg font-bold text-slate-800 mb-4">🔔 Mark Bhidan — {selectedBeam.beam_no}</h2>
+            <h2 className="text-lg font-bold text-slate-800 mb-4">
+              Mark Bhidan — {selectedBeam.beam_no}
+            </h2>
             <form onSubmit={handleBhidan} className="space-y-4">
               <div>
                 <label className="label">Bhidan Date</label>
-                <input type="date" value={bhidanForm.bhidan_date} onChange={(e) => setBhidanForm((f) => ({ ...f, bhidan_date: e.target.value }))} className="input" required />
+                <input
+                  type="date"
+                  value={bhidanForm.bhidan_date}
+                  onChange={(e) => setBhidanForm((f) => ({ ...f, bhidan_date: e.target.value }))}
+                  className="input"
+                  required
+                />
               </div>
               <div>
                 <label className="label">Shift</label>
                 <div className="flex gap-2">
                   {(["DAY", "NIGHT"] as const).map((s) => (
-                    <button key={s} type="button" onClick={() => setBhidanForm((f) => ({ ...f, bhidan_shift: s }))} className={`flex-1 py-2 rounded-lg font-medium ${bhidanForm.bhidan_shift === s ? "bg-blue-600 text-white" : "bg-slate-100"}`}>{s}</button>
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => setBhidanForm((f) => ({ ...f, bhidan_shift: s }))}
+                      className={
+                        "flex-1 py-2 rounded-lg font-medium text-sm " +
+                        (bhidanForm.bhidan_shift === s ? "bg-blue-600 text-white" : "bg-slate-100")
+                      }
+                    >
+                      {s}
+                    </button>
                   ))}
                 </div>
               </div>
@@ -373,8 +486,20 @@ export default function BeamPage() {
                 This beam will be marked as completed. Production will stop being tracked for this beam.
               </div>
               <div className="flex gap-3 pt-2">
-                <button type="submit" disabled={saving} className="flex-1 bg-orange-600 text-white py-2 rounded-lg hover:bg-orange-700 disabled:opacity-50">{saving ? "Saving..." : "Confirm Bhidan"}</button>
-                <button type="button" onClick={() => setShowBhidan(false)} className="flex-1 bg-slate-200 text-slate-800 py-2 rounded-lg hover:bg-slate-300">Cancel</button>
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="flex-1 bg-orange-600 text-white py-2 rounded-lg hover:bg-orange-700 disabled:opacity-50 text-sm font-medium"
+                >
+                  {saving ? "Saving..." : "Confirm Bhidan"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowBhidan(false)}
+                  className="flex-1 bg-slate-200 text-slate-800 py-2 rounded-lg hover:bg-slate-300 text-sm"
+                >
+                  Cancel
+                </button>
               </div>
             </form>
           </div>

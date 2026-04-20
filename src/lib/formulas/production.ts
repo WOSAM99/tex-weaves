@@ -42,7 +42,6 @@ export function decimalHoursToMins(val: number | string): number {
  */
 export function calcEfficiency(runMins: number, shift: string): number {
   const limit = SHIFT_LIMIT(shift);
-  if (limit === 0) return 0;
   return Math.round((runMins / limit) * 10000) / 10000;
 }
 
@@ -56,7 +55,7 @@ export function calcProduction(
   shift: string
 ): number {
   const limit = SHIFT_LIMIT(shift);
-  if (ppi === 0 || limit === 0) return 0;
+  if (ppi === 0) return 0;
   return (C * runRpm * runMins) / limit / ppi;
 }
 
@@ -70,7 +69,7 @@ export function calcTrueProduction(
   shift: string
 ): number {
   const limit = SHIFT_LIMIT(shift);
-  if (ppi === 0 || limit === 0) return 0;
+  if (ppi === 0) return 0;
   return (C * trueRpm * runMins) / limit / ppi;
 }
 

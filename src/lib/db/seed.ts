@@ -95,24 +95,24 @@ async function seedShiftLog() {
   const sheetNames = wb.SheetNames;
 
   // Build quality name → id lookup
-  const qualityLookup = await sql`
-    SELECT id, name FROM quality_master
-  `.then((rows: { id: number; name: string }[]) =>
-    Object.fromEntries(rows.map((r) => [r.name.trim(), r.id]))
-  );
+  const qualRows = await sql`SELECT id, name FROM quality_master`;
+  const qualityLookup: Record<string, number> = {};
+  (qualRows as { id: number; name: string }[]).forEach((r) => {
+    qualityLookup[r.name.trim()] = r.id;
+  });
 
   // Build machine no → true rpm lookup
-  const machineLookup = await sql`
-    SELECT machine_no, true_rpm FROM machine_master
-  `.then((rows: { machine_no: number; true_rpm: number }[]) =>
-    Object.fromEntries(rows.map((r) => [r.machine_no, r.true_rpm]))
-  );
+  const machRows = await sql`SELECT machine_no, true_rpm FROM machine_master`;
+  const machineLookup: Record<number, number> = {};
+  (machRows as { machine_no: number; true_rpm: number }[]).forEach((r) => {
+    machineLookup[r.machine_no] = r.true_rpm;
+  });
 
   let totalRows = 0;
 
   for (const sheetName of sheetNames) {
     const ws = wb.Sheets[sheetName];
-    const raw = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, {
+    const raw = XLSX.utils.sheet_to_json<unknown[]>(ws, {
       header: 1,
       defval: null,
     });
@@ -148,8 +148,8 @@ async function seedShiftLog() {
         const qId = qualityLookup[q];
         if (!qId) return;
 
-        const ppiVal = await sql`SELECT ppi FROM quality_master WHERE id = ${qId}`
-          .then((r: { ppi: number }[]) => r[0]?.ppi ?? 80);
+        const ppiRows = await sql`SELECT ppi FROM quality_master WHERE id = ${qId}` as { ppi: number }[];
+        const ppiVal = ppiRows[0]?.ppi ?? 80;
 
         const rt = Number(runTime) || 0;
         const pt = Number(powerTime) || 0;
@@ -190,11 +190,11 @@ async function seedBeam() {
   const ws = wb.Sheets["Sheet1"];
   const raw = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws);
 
-  const qualityLookup = await sql`
-    SELECT id, name FROM quality_master
-  `.then((rows: { id: number; name: string }[]) =>
-    Object.fromEntries(rows.map((r) => [r.name.trim(), r.id]))
-  );
+  const qualRowsBm = await sql`SELECT id, name FROM quality_master`;
+  const qualityLookup: Record<string, number> = {};
+  (qualRowsBm as { id: number; name: string }[]).forEach((r) => {
+    qualityLookup[r.name.trim()] = r.id;
+  });
 
   let count = 0;
   for (const r of raw) {
@@ -240,7 +240,7 @@ async function seedYarnPurchase() {
 
   // 25-26 sheet has headers at row 4 (0-indexed)
   const ws = wb.Sheets["25-26"];
-  const raw = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, {
+  const raw = XLSX.utils.sheet_to_json<unknown[]>(ws, {
     header: 1,
     defval: null,
   });
@@ -266,25 +266,25 @@ async function seedYarnPurchase() {
 
   // Jobwork receipts from 25-26 JW sheet
   const wsJw = wb.Sheets["25-26 JW"];
-  const rawJw = XLSX.utils.sheet_to_json<Record<string, unknown>>(wsJw, {
+  const rawJw = XLSX.utils.sheet_to_json<unknown[]>(wsJw, {
     header: 1,
     defval: null,
   });
 
-  const qualityLookup = await sql`
-    SELECT id, name FROM quality_master
-  `.then((rows: { id: number; name: string }[]) =>
-    Object.fromEntries(rows.map((r) => [r.name.trim(), r.id]))
-  );
+  const qualRowsBm = await sql`SELECT id, name FROM quality_master`;
+  const qualityLookup: Record<string, number> = {};
+  (qualRowsBm as { id: number; name: string }[]).forEach((r) => {
+    qualityLookup[r.name.trim()] = r.id;
+  });
 
   // Check if jobwork parties exist, create default if needed
   await sql`INSERT INTO jobwork_party (name) VALUES ('Default Party') ON CONFLICT DO NOTHING`;
 
-  const partyLookup = await sql`
-    SELECT id, name FROM jobwork_party
-  `.then((rows: { id: number; name: string }[]) =>
-    Object.fromEntries(rows.map((r) => [r.name.trim(), r.id]))
-  );
+  const partyRows = await sql`SELECT id, name FROM jobwork_party`;
+  const partyLookup: Record<string, number> = {};
+  (partyRows as { id: number; name: string }[]).forEach((r) => {
+    partyLookup[r.name.trim()] = r.id;
+  });
 
   count = 0;
   for (let i = 1; i < rawJw.length; i++) {

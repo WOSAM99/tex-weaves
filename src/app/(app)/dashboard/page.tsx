@@ -153,7 +153,7 @@ export default function DashboardPage() {
 
   const totalProd = prodRows.reduce((s, r) => s + r.prod, 0);
   const avgEff = prodRows.length > 0
-    ? prodRows.reduce((s, r) => s + r.efficiency, 0) / prodRows.reduce((s, r) => s + r.nom, 0)
+    ? prodRows.reduce((s, r) => s + r.true_eff, 0) / prodRows.length
     : 0;
   const activeMc = new Set(machineRows.map((m) => m.machine_no)).size;
 
